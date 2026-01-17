@@ -52,7 +52,7 @@ A complete coin-operated WiFi hotspot management system built with Node.js, Expr
 
 1. **Clone and install dependencies**
 ```bash
-git clone <repository-url>
+git clone https://github.com/Djnirds1984/AJC-PISOWIFI.git
 cd ajc-pisowifi
 npm install
 ```
