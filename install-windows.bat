@@ -80,7 +80,7 @@ goto :eof
 REM Install PM2 globally
 :install_pm2
 call :log "Installing PM2..."
-call npm install -g pm2
+call npm install -g pm2 tsx
 if %errorlevel% equ 0 (
     call :success "PM2 installed successfully"
 ) else (

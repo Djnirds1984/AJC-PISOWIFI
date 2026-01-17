@@ -123,7 +123,7 @@ install_nodejs() {
     esac
     
     # Install global npm packages
-    npm install -g npm@latest pm2
+    npm install -g npm@latest pm2 tsx
     
     success "Node.js and PM2 installed successfully"
 }

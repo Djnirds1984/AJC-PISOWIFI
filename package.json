@@ -13,7 +13,7 @@
     "server:prod": "node api/server.ts",
     "dev": "concurrently \"npm run client:dev\" \"npm run server:dev\"",
     "start": "npm run server:prod",
-    "init:db": "node --loader tsx/esm scripts/init-db.js",
+    "init:db": "node --import tsx/esm scripts/init-db.js",
     "postinstall": "npm run init:db"
   },
   "dependencies": {
