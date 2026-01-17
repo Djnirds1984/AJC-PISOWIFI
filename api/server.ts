@@ -120,10 +120,19 @@ async function initializeServices() {
     networkManager = new NetworkManager();
     await networkManager.initialize();
 
+    // Setup captive portal only on Linux systems
+    if (process.platform !== 'win32' && networkManager) {
+      try {
+        await networkManager.setupCaptivePortal();
+      } catch (error) {
+        console.error('Failed to setup captive portal:', error);
+      }
+    }
+
+  console.log('All services initialized successfully');
+    
     // Initialize System Updater
     systemUpdater = new SystemUpdater();
-
-    console.log('All services initialized successfully');
   } catch (error) {
     console.error('Failed to initialize services:', error);
     addSystemLog('error', `Service initialization failed: ${error.message}`);
@@ -382,12 +391,13 @@ app.delete('/api/admin/rates/:id', authenticateAdmin, (req: AuthenticatedRequest
 
 app.get('/api/admin/network/interfaces', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
   try {
-    if (networkManager) {
-      const interfaces = await networkManager.getNetworkInterfaces();
-      res.json({ interfaces });
-    } else {
+    // On Windows, always use database fallback
+    if (process.platform === 'win32' || !networkManager) {
       // Fallback to database
       const interfaces = getNetworkInterfaces();
+      res.json({ interfaces });
+    } else {
+      const interfaces = await networkManager.getNetworkInterfaces();
       res.json({ interfaces });
     }
   } catch (error) {
@@ -536,15 +546,6 @@ server.listen(PORT, async () => {
   
   // Initialize services
   await initializeServices();
-  
-  // Setup captive portal if network manager is available
-  if (networkManager) {
-    try {
-      await networkManager.setupCaptivePortal();
-    } catch (error) {
-      console.error('Failed to setup captive portal:', error);
-    }
-  }
 });
 
 export default app;

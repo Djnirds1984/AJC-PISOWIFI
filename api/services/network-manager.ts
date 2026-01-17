@@ -23,8 +23,18 @@ export class NetworkManager {
 
   async initialize(): Promise<void> {
     try {
-      // Check if we have necessary permissions
-      await this.checkPermissions();
+      // Check if we're on Windows (development environment)
+      if (process.platform === 'win32') {
+        console.log('Network Manager: Running on Windows - network operations disabled');
+        this.isInitialized = true;
+        return;
+      }
+
+      // Check if we have necessary permissions (Linux only)
+      if (process.platform !== 'win32') {
+        await this.checkPermissions();
+      }
+      
       this.isInitialized = true;
       console.log('Network Manager: Initialized');
     } catch (error) {
@@ -217,6 +227,13 @@ export class NetworkManager {
 
   async cleanup(): Promise<void> {
     try {
+      // Skip network operations on Windows
+      if (process.platform === 'win32') {
+        this.isInitialized = false;
+        console.log('Network Manager: Cleanup completed (Windows)');
+        return;
+      }
+
       // Remove all captive portal rules
       await this.removeCaptivePortalRules();
       
