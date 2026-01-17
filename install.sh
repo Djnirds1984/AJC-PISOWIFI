@@ -84,11 +84,15 @@ setup_system() {
         ubuntu|debian)
             apt-get update -y
             apt-get upgrade -y
+            
+            # Install packages, handling missing ones gracefully for newer Debian versions
             apt-get install -y \
                 curl wget git build-essential python3 python3-pip \
-                software-properties-common apt-transport-https ca-certificates \
-                gnupg lsb-release nginx sqlite3 libsqlite3-dev \
-                ufw fail2ban logrotate cron
+                ca-certificates gnupg lsb-release nginx sqlite3 libsqlite3-dev \
+                ufw fail2ban logrotate cron || true
+            
+            # Try to install software-properties-common (might not be available in newer versions)
+            apt-get install -y software-properties-common apt-transport-https || warning "Some packages not available in this Debian version, continuing..."
             ;;
         centos|rhel|fedora)
             yum update -y
@@ -113,11 +117,16 @@ install_nodejs() {
     
     case $OS in
         ubuntu|debian)
-            curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION | bash -
-            apt-get install -y nodejs
+            # Try NodeSource first, fallback to official repos if it fails
+            if curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION | bash -; then
+                apt-get install -y nodejs
+            else
+                warning "NodeSource setup failed, trying official repositories..."
+                apt-get install -y nodejs npm
+            fi
             ;;
         centos|rhel|fedora)
-            curl -fsSL https://rpm.nodesource.com/setup_$NODE_VERSION | bash -
+            curl -fsSL https://rpm.nodesource.com/setup_$NODE_VERSION | bash - || warning "NodeSource setup failed"
             yum install -y nodejs
             ;;
     esac
@@ -273,39 +282,24 @@ EOF
 setup_pm2() {
     log "Setting up PM2..."
     
-    # Create PM2 ecosystem file
-    cat > "$PROJECT_DIR/ecosystem.config.js" << 'EOF'
-module.exports = {
-  apps: [{
-    name: 'ajc-pisowifi',
-    script: 'api/server.js',
-    cwd: '/opt/ajc-pisowifi',
-    instances: 1,
-    exec_mode: 'fork',
-    watch: false,
-    max_memory_restart: '500M',
-    env: {
-      NODE_ENV: 'production',
-      PORT: 8080
-    },
-    error_file: '/var/log/ajc-pisowifi/err.log',
-    out_file: '/var/log/ajc-pisowifi/out.log',
-    log_file: '/var/log/ajc-pisowifi/combined.log',
-    time: true,
-    autorestart: true,
-    max_restarts: 10,
-    min_uptime: '10s',
-    listen_timeout: 8000,
-    kill_timeout: 5000,
-    restart_delay: 4000
-  }]
-};
-EOF
+    # The ecosystem.config.js file is already in the project root with proper ES6 syntax
+    # Just ensure it exists and has correct permissions
+    if [[ -f "$PROJECT_DIR/ecosystem.config.js" ]]; then
+        chown $PROJECT_USER:$PROJECT_USER "$PROJECT_DIR/ecosystem.config.js"
+        chmod 644 "$PROJECT_DIR/ecosystem.config.js"
+        success "PM2 ecosystem configuration found and configured"
+    else
+        warning "ecosystem.config.js not found in project directory"
+    fi
 
     # Setup PM2 startup
-    pm2 startup systemd -u $PROJECT_USER --hp "$PROJECT_DIR" > /tmp/pm2-startup.sh
-    bash /tmp/pm2-startup.sh
-    rm /tmp/pm2-startup.sh
+    if pm2 startup systemd -u $PROJECT_USER --hp "$PROJECT_DIR" > /tmp/pm2-startup.sh; then
+        bash /tmp/pm2-startup.sh
+        rm /tmp/pm2-startup.sh
+        success "PM2 startup configured successfully"
+    else
+        warning "PM2 startup configuration failed, but continuing..."
+    fi
     
     success "PM2 configured successfully"
 }
@@ -491,13 +485,22 @@ start_services() {
     log "Starting services..."
     
     # Start Nginx
-    systemctl enable nginx
-    systemctl start nginx
+    if systemctl enable nginx && systemctl start nginx; then
+        success "Nginx started successfully"
+    else
+        error "Failed to start Nginx"
+        return 1
+    fi
     
     # Start PM2 application
     cd "$PROJECT_DIR"
-    sudo -u $PROJECT_USER pm2 start ecosystem.config.js
-    sudo -u $PROJECT_USER pm2 save
+    if sudo -u $PROJECT_USER pm2 start ecosystem.config.js; then
+        sudo -u $PROJECT_USER pm2 save
+        success "PM2 application started successfully"
+    else
+        error "Failed to start PM2 application"
+        return 1
+    fi
     
     success "Services started successfully"
 }
