@@ -8,7 +8,7 @@ async function initDatabase() {
   
   try {
     // Run the TypeScript database initialization
-    await execAsync('node --loader tsx/esm api/database/init.ts');
+    await execAsync('node --import tsx/esm api/database/init.ts');
     console.log('Database initialized successfully!');
   } catch (error) {
     console.error('Error initializing database:', error);

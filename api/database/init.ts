@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import bcrypt from 'bcryptjs';
 
 const dbDir = join(process.cwd(), 'data');
 const dbPath = join(dbDir, 'pisowifi.db');
@@ -109,7 +110,6 @@ defaultRates.forEach(rate => {
 
 // Insert default admin user (password: admin123)
 // Note: In production, this should be changed immediately
-const bcrypt = require('bcryptjs');
 const adminPassword = bcrypt.hashSync('admin123', 10);
 const insertAdmin = db.prepare(`
   INSERT OR IGNORE INTO admin_users (id, username, password_hash) 

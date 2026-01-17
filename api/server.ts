@@ -7,6 +7,21 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
+import { exec } from 'child_process';
+
+// Type definitions
+interface AdminUser {
+  id: string;
+  username: string;
+  password_hash: string;
+  session_token?: string;
+  last_login?: string;
+  is_active: boolean;
+}
+
+interface AuthenticatedRequest extends express.Request {
+  admin?: AdminUser;
+}
 
 // Import services
 import GPIOManager from './hardware/gpio-manager.js';
@@ -14,7 +29,7 @@ import NetworkManager from './services/network-manager.js';
 import SystemUpdater from './services/system-updater.js';
 
 // Import database models
-import db, { 
+import { 
   createSession, 
   getSessionByMac, 
   updateSessionCredits,
@@ -26,6 +41,7 @@ import db, {
   getAdminByUsername,
   updateAdminSession,
   getAdminBySession,
+  clearAdminSession,
   addSystemLog,
   getAnalytics,
   updateNetworkInterface,
@@ -194,7 +210,7 @@ app.get('/api/session/:mac_address', (req, res) => {
 });
 
 // Admin Authentication Middleware
-function authenticateAdmin(req: any, res: any, next: any) {
+function authenticateAdmin(req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) {
   const token = req.headers.authorization?.split(' ')[1];
   
   if (!token) {
@@ -257,12 +273,13 @@ app.post('/api/admin/auth/login', (req, res) => {
   }
 });
 
-app.post('/api/admin/auth/logout', authenticateAdmin, (req, res) => {
+app.post('/api/admin/auth/logout', authenticateAdmin, (req: AuthenticatedRequest, res) => {
   try {
-    const { exec } = require('child_process');
-    const db = require('./database/init.js');
-    const stmt = db.default.prepare('UPDATE admin_users SET session_token = NULL WHERE id = ?');
-    stmt.run(req.admin.id);
+    if (!req.admin?.session_token) {
+      return res.status(400).json({ error: 'No active session' });
+    }
+    
+    clearAdminSession(req.admin.session_token);
     
     addSystemLog('info', `Admin logout: ${req.admin.username}`, req.admin.id);
     
@@ -273,7 +290,7 @@ app.post('/api/admin/auth/logout', authenticateAdmin, (req, res) => {
   }
 });
 
-app.get('/api/admin/analytics', authenticateAdmin, (req, res) => {
+app.get('/api/admin/analytics', authenticateAdmin, (req: AuthenticatedRequest, res) => {
   try {
     const analytics = getAnalytics();
     res.json(analytics);
@@ -283,7 +300,7 @@ app.get('/api/admin/analytics', authenticateAdmin, (req, res) => {
   }
 });
 
-app.get('/api/admin/sessions', authenticateAdmin, (req, res) => {
+app.get('/api/admin/sessions', authenticateAdmin, (req: AuthenticatedRequest, res) => {
   try {
     const sessions = getActiveSessions();
     res.json({ sessions });
@@ -293,7 +310,7 @@ app.get('/api/admin/sessions', authenticateAdmin, (req, res) => {
   }
 });
 
-app.get('/api/admin/rates', authenticateAdmin, (req, res) => {
+app.get('/api/admin/rates', authenticateAdmin, (req: AuthenticatedRequest, res) => {
   try {
     const rates = getActiveRates();
     res.json({ rates });
@@ -303,7 +320,7 @@ app.get('/api/admin/rates', authenticateAdmin, (req, res) => {
   }
 });
 
-app.post('/api/admin/rates', authenticateAdmin, (req, res) => {
+app.post('/api/admin/rates', authenticateAdmin, (req: AuthenticatedRequest, res) => {
   try {
     const { coin_value, minutes } = req.body;
     
@@ -322,7 +339,7 @@ app.post('/api/admin/rates', authenticateAdmin, (req, res) => {
   }
 });
 
-app.put('/api/admin/rates/:id', authenticateAdmin, (req, res) => {
+app.put('/api/admin/rates/:id', authenticateAdmin, (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     const { coin_value, minutes } = req.body;
@@ -345,7 +362,7 @@ app.put('/api/admin/rates/:id', authenticateAdmin, (req, res) => {
   }
 });
 
-app.delete('/api/admin/rates/:id', authenticateAdmin, (req, res) => {
+app.delete('/api/admin/rates/:id', authenticateAdmin, (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     
@@ -363,7 +380,7 @@ app.delete('/api/admin/rates/:id', authenticateAdmin, (req, res) => {
   }
 });
 
-app.get('/api/admin/network/interfaces', authenticateAdmin, async (req, res) => {
+app.get('/api/admin/network/interfaces', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
   try {
     if (networkManager) {
       const interfaces = await networkManager.getNetworkInterfaces();
@@ -379,7 +396,7 @@ app.get('/api/admin/network/interfaces', authenticateAdmin, async (req, res) => 
   }
 });
 
-app.post('/api/admin/network/bridge', authenticateAdmin, async (req, res) => {
+app.post('/api/admin/network/bridge', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
   try {
     const { bridge_name, interfaces } = req.body;
     
@@ -402,7 +419,7 @@ app.post('/api/admin/network/bridge', authenticateAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/system/update', authenticateAdmin, (req, res) => {
+app.post('/api/admin/system/update', authenticateAdmin, (req: AuthenticatedRequest, res) => {
   try {
     const { repository_url, branch } = req.body;
     
@@ -439,7 +456,7 @@ app.post('/api/admin/system/update', authenticateAdmin, (req, res) => {
   }
 });
 
-app.get('/api/admin/system/update/status', authenticateAdmin, (req, res) => {
+app.get('/api/admin/system/update/status', authenticateAdmin, (req: AuthenticatedRequest, res) => {
   try {
     if (!systemUpdater) {
       return res.status(503).json({ error: 'System updater not available' });

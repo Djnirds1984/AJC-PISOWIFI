@@ -416,7 +416,7 @@ const AdminDashboard: React.FC = () => {
                     <tr key={rate.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">₱{rate.coin_value}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{rate.minutes}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₱{rate.coin_value/rate.minutes:.2f}/min</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₱{(rate.coin_value/rate.minutes).toFixed(2)}/min</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <button
                           onClick={() => setShowEditRate(rate)}
@@ -550,7 +550,7 @@ const AdminDashboard: React.FC = () => {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
                       },
-                      body: JSON.stringify({ repository_url, branch })
+                      body: JSON.stringify({ repository_url: repositoryUrl, branch })
                     });
                     
                     if (response.ok) {
