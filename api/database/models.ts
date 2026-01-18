@@ -316,6 +316,111 @@ function calculateUptime(firstLogin: string): string {
   return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
+// Network Configuration Functions
+export const getWANConfiguration = (): any => {
+  const stmt = db.prepare('SELECT * FROM wan_configurations WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 1');
+  return stmt.get();
+};
+
+export const updateWANConfiguration = (config: any): void => {
+  const id = config.id || 'wan-default';
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO wan_configurations (id, interface, ip_address, subnet_mask, gateway, dns_primary, dns_secondary, dhcp_enabled, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(id, config.interface, config.ip_address, config.subnet_mask, config.gateway, config.dns_primary, config.dns_secondary, config.dhcp_enabled ? 1 : 0, new Date().toISOString());
+};
+
+export const getWLANConfiguration = (): any => {
+  const stmt = db.prepare('SELECT * FROM wlan_configurations WHERE is_enabled = 1 ORDER BY updated_at DESC LIMIT 1');
+  return stmt.get();
+};
+
+export const updateWLANConfiguration = (config: any): void => {
+  const id = config.id || 'wlan-default';
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO wlan_configurations (id, interface, ssid, security_type, password, channel, signal_strength, is_enabled, is_connected, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(id, config.interface, config.ssid, config.security_type, config.password, config.channel, config.signal_strength, config.is_enabled ? 1 : 0, config.is_connected ? 1 : 0, new Date().toISOString());
+};
+
+export const getHotspotConfigurations = (): any[] => {
+  const stmt = db.prepare('SELECT * FROM hotspot_configurations ORDER BY created_at DESC');
+  return stmt.all();
+};
+
+export const createHotspotConfiguration = (config: any): void => {
+  const id = require('uuid').v4();
+  const stmt = db.prepare(`
+    INSERT INTO hotspot_configurations (id, name, interface, ssid, security_type, password, max_clients, bandwidth_limit_up, bandwidth_limit_down, is_enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(id, config.name, config.interface, config.ssid, config.security_type, config.password, config.max_clients, config.bandwidth_limit_up, config.bandwidth_limit_down, config.is_enabled ? 1 : 0);
+};
+
+export const updateHotspotConfiguration = (id: string, config: any): void => {
+  const stmt = db.prepare(`
+    UPDATE hotspot_configurations 
+    SET name = ?, interface = ?, ssid = ?, security_type = ?, password = ?, max_clients = ?, bandwidth_limit_up = ?, bandwidth_limit_down = ?, is_enabled = ?, updated_at = ?
+    WHERE id = ?
+  `);
+  stmt.run(config.name, config.interface, config.ssid, config.security_type, config.password, config.max_clients, config.bandwidth_limit_up, config.bandwidth_limit_down, config.is_enabled ? 1 : 0, new Date().toISOString(), id);
+};
+
+export const deleteHotspotConfiguration = (id: string): void => {
+  const stmt = db.prepare('DELETE FROM hotspot_configurations WHERE id = ?');
+  stmt.run(id);
+};
+
+export const getVLANConfigurations = (): any[] => {
+  const stmt = db.prepare('SELECT * FROM vlan_configurations ORDER BY vlan_id');
+  return stmt.all();
+};
+
+export const createVLANConfiguration = (config: any): void => {
+  const id = require('uuid').v4();
+  const stmt = db.prepare(`
+    INSERT INTO vlan_configurations (id, vlan_id, name, interface, tagged, priority, is_enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(id, config.vlan_id, config.name, config.interface, config.tagged ? 1 : 0, config.priority, config.is_enabled ? 1 : 0);
+};
+
+export const updateVLANConfiguration = (id: string, config: any): void => {
+  const stmt = db.prepare(`
+    UPDATE vlan_configurations 
+    SET vlan_id = ?, name = ?, interface = ?, tagged = ?, priority = ?, is_enabled = ?, updated_at = ?
+    WHERE id = ?
+  `);
+  stmt.run(config.vlan_id, config.name, config.interface, config.tagged ? 1 : 0, config.priority, config.is_enabled ? 1 : 0, new Date().toISOString(), id);
+};
+
+export const deleteVLANConfiguration = (id: string): void => {
+  const stmt = db.prepare('DELETE FROM vlan_configurations WHERE id = ?');
+  stmt.run(id);
+};
+
+export const addNetworkSettingsHistory = (settingType: string, settingId: string, oldValue: any, newValue: any, adminId: string): void => {
+  const id = require('uuid').v4();
+  const stmt = db.prepare(`
+    INSERT INTO network_settings_history (id, setting_type, setting_id, old_value, new_value, admin_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(id, settingType, settingId, JSON.stringify(oldValue), JSON.stringify(newValue), adminId);
+};
+
+export const getNetworkSettingsHistory = (limit = 50): any[] => {
+  const stmt = db.prepare(`
+    SELECT h.*, a.username 
+    FROM network_settings_history h
+    LEFT JOIN admin_users a ON h.admin_id = a.id
+    ORDER BY h.timestamp DESC 
+    LIMIT ?
+  `);
+  return stmt.all(limit);
+};
+
 export default {
   createSession,
   getSessionByMac,
@@ -339,5 +444,19 @@ export default {
   getNetworkInterfaces,
   createBridge,
   getActiveBridges,
-  getAnalytics
+  getAnalytics,
+  getWANConfiguration,
+  updateWANConfiguration,
+  getWLANConfiguration,
+  updateWLANConfiguration,
+  getHotspotConfigurations,
+  createHotspotConfiguration,
+  updateHotspotConfiguration,
+  deleteHotspotConfiguration,
+  getVLANConfigurations,
+  createVLANConfiguration,
+  updateVLANConfiguration,
+  deleteVLANConfiguration,
+  addNetworkSettingsHistory,
+  getNetworkSettingsHistory
 };

@@ -47,7 +47,21 @@ import {
   updateNetworkInterface,
   getNetworkInterfaces,
   createBridge,
-  getActiveBridges
+  getActiveBridges,
+  getWANConfiguration,
+  updateWANConfiguration,
+  getWLANConfiguration,
+  updateWLANConfiguration,
+  getHotspotConfigurations,
+  createHotspotConfiguration,
+  updateHotspotConfiguration,
+  deleteHotspotConfiguration,
+  getVLANConfigurations,
+  createVLANConfiguration,
+  updateVLANConfiguration,
+  deleteVLANConfiguration,
+  addNetworkSettingsHistory,
+  getNetworkSettingsHistory
 } from './database/models.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -127,7 +141,7 @@ async function initializeServices() {
       addSystemLog('info', `GPIO successfully initialized on primary pin ${GPIO_PIN}`);
     } catch (error) {
       console.error(`GPIO initialization failed on pin ${GPIO_PIN}, trying fallback pin ${GPIO_PIN_FALLBACK}:`, error);
-      addSystemLog('warning', `GPIO initialization failed on pin ${GPIO_PIN}, trying fallback pin ${GPIO_PIN_FALLBACK}: ${error.message}`);
+      addSystemLog('warn', `GPIO initialization failed on pin ${GPIO_PIN}, trying fallback pin ${GPIO_PIN_FALLBACK}: ${error.message}`);
       
       // Try fallback pin
       try {
@@ -170,7 +184,7 @@ async function initializeServices() {
         addSystemLog('info', `GPIO successfully initialized on fallback pin ${GPIO_PIN_FALLBACK}`);
       } catch (fallbackError) {
         console.error('Fallback GPIO initialization also failed, continuing in mock mode:', fallbackError);
-        addSystemLog('warning', `Fallback GPIO initialization failed, using mock mode: ${fallbackError.message}`);
+        addSystemLog('warn', `Fallback GPIO initialization failed, using mock mode: ${fallbackError.message}`);
         // Continue with mock mode - don't throw error to prevent service failure
       }
     }
@@ -178,6 +192,18 @@ async function initializeServices() {
     // Initialize Network Manager
     networkManager = new NetworkManager();
     await networkManager.initialize();
+
+    // Setup network monitoring interval
+    if (networkManager) {
+      setInterval(async () => {
+        try {
+          const interfaces = await networkManager.getNetworkInterfaces();
+          io.emit('networkInterfaces', { interfaces });
+        } catch (error) {
+          console.error('Network monitoring error:', error);
+        }
+      }, 30000); // Update every 30 seconds
+    }
 
     // Setup captive portal only on Linux systems
     if (process.platform !== 'win32' && networkManager) {
@@ -528,6 +554,371 @@ app.post('/api/admin/network/bridge', authenticateAdmin, async (req: Authenticat
   } catch (error) {
     console.error('Error creating bridge:', error);
     res.status(500).json({ error: 'Failed to create bridge' });
+  }
+});
+
+app.get('/api/admin/network/bridges', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const bridges = getActiveBridges();
+    res.json({ bridges });
+  } catch (error) {
+    console.error('Error getting bridges:', error);
+    res.status(500).json({ error: 'Failed to get bridge configurations' });
+  }
+});
+
+app.delete('/api/admin/network/bridge/:id', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({ error: 'Bridge ID is required' });
+    }
+
+    // Find the bridge to delete
+    const bridges = getActiveBridges();
+    const bridge = bridges.find(b => b.id === id);
+    
+    if (!bridge) {
+      return res.status(404).json({ error: 'Bridge not found' });
+    }
+
+    if (networkManager) {
+      await networkManager.deleteBridge(bridge.bridge_name);
+      
+      addSystemLog('info', `Bridge deleted: ${bridge.bridge_name}`, req.admin.id);
+      
+      res.json({ message: 'Bridge deleted successfully' });
+    } else {
+      res.status(503).json({ error: 'Network manager not available' });
+    }
+  } catch (error) {
+    console.error('Error deleting bridge:', error);
+    res.status(500).json({ error: 'Failed to delete bridge' });
+  }
+});
+
+// WAN Configuration Endpoints
+app.get('/api/admin/network/wan-config', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const wanConfig = getWANConfiguration();
+    
+    if (!wanConfig) {
+      return res.status(404).json({ error: 'No WAN configuration found' });
+    }
+    
+    res.json({ config: wanConfig });
+  } catch (error) {
+    console.error('Error getting WAN config:', error);
+    res.status(500).json({ error: 'Failed to get WAN configuration' });
+  }
+});
+
+app.post('/api/admin/network/wan-config', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const config = req.body;
+    
+    // Validate required fields
+    if (!config.interface || !config.ip_address || !config.subnet_mask || !config.gateway || !config.dns_primary) {
+      return res.status(400).json({ error: 'All WAN configuration fields are required' });
+    }
+
+    // Validate IP addresses
+    if (networkManager && !networkManager.validateIP(config.ip_address)) {
+      return res.status(400).json({ error: 'Invalid IP address' });
+    }
+    
+    if (networkManager && !networkManager.validateIP(config.gateway)) {
+      return res.status(400).json({ error: 'Invalid gateway address' });
+    }
+    
+    if (networkManager && !networkManager.validateDNS(config.dns_primary)) {
+      return res.status(400).json({ error: 'Invalid primary DNS address' });
+    }
+    
+    if (config.dns_secondary && networkManager && !networkManager.validateDNS(config.dns_secondary)) {
+      return res.status(400).json({ error: 'Invalid secondary DNS address' });
+    }
+
+    if (networkManager) {
+      // Get old configuration for history
+      const oldConfig = getWANConfiguration();
+      
+      await networkManager.configureWAN(config);
+      
+      // Save to database
+      updateWANConfiguration(config);
+      
+      // Add to history
+      addNetworkSettingsHistory('wan', config.interface, oldConfig, config, req.admin.id);
+      
+      addSystemLog('info', `WAN configuration updated for interface: ${config.interface}`, req.admin.id);
+      
+      res.json({ message: 'WAN configuration updated successfully' });
+    } else {
+      res.status(503).json({ error: 'Network manager not available' });
+    }
+  } catch (error) {
+    console.error('Error updating WAN config:', error);
+    res.status(500).json({ error: 'Failed to update WAN configuration' });
+  }
+});
+
+// WLAN Configuration Endpoints
+app.get('/api/admin/network/wlan-scan', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    if (networkManager) {
+      const networks = await networkManager.scanAvailableNetworks();
+      res.json({ networks });
+    } else {
+      res.status(503).json({ error: 'Network manager not available' });
+    }
+  } catch (error) {
+    console.error('Error scanning networks:', error);
+    res.status(500).json({ error: 'Failed to scan wireless networks' });
+  }
+});
+
+app.get('/api/admin/network/wlan-config', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const wlanConfig = getWLANConfiguration();
+    
+    if (!wlanConfig) {
+      return res.status(404).json({ error: 'No WLAN configuration found' });
+    }
+    
+    res.json({ config: wlanConfig });
+  } catch (error) {
+    console.error('Error getting WLAN config:', error);
+    res.status(500).json({ error: 'Failed to get WLAN configuration' });
+  }
+});
+
+app.post('/api/admin/network/wlan-config', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const config = req.body;
+    
+    // Validate required fields
+    if (!config.interface || !config.ssid || !config.security_type || config.channel === undefined) {
+      return res.status(400).json({ error: 'Interface, SSID, security type, and channel are required' });
+    }
+
+    // Validate SSID
+    if (networkManager && !networkManager.validateSSID(config.ssid)) {
+      return res.status(400).json({ error: 'Invalid SSID format' });
+    }
+
+    // Validate password if security is enabled
+    if (config.security_type !== 'none' && !config.password) {
+      return res.status(400).json({ error: 'Password is required for secured networks' });
+    }
+
+    if (config.password && networkManager && !networkManager.validatePassword(config.password, config.security_type)) {
+      return res.status(400).json({ error: 'Invalid password format for selected security type' });
+    }
+
+    if (networkManager) {
+      // Get old configuration for history
+      const oldConfig = getWLANConfiguration();
+      
+      await networkManager.configureWLAN(config);
+      
+      // Save to database
+      updateWLANConfiguration(config);
+      
+      // Add to history
+      addNetworkSettingsHistory('wlan', config.interface, oldConfig, config, req.admin.id);
+      
+      addSystemLog('info', `WLAN configuration updated for interface: ${config.interface}`, req.admin.id);
+      
+      res.json({ message: 'WLAN configuration updated successfully' });
+    } else {
+      res.status(503).json({ error: 'Network manager not available' });
+    }
+  } catch (error) {
+    console.error('Error updating WLAN config:', error);
+    res.status(500).json({ error: 'Failed to update WLAN configuration' });
+  }
+});
+
+// Hotspot Management Endpoints
+app.get('/api/admin/network/hotspot', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const hotspots = getHotspotConfigurations();
+    res.json({ hotspots });
+  } catch (error) {
+    console.error('Error getting hotspot configurations:', error);
+    res.status(500).json({ error: 'Failed to get hotspot configurations' });
+  }
+});
+
+app.post('/api/admin/network/hotspot', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const config = req.body;
+    
+    // Validate required fields
+    if (!config.name || !config.interface || !config.ssid || !config.security_type || !config.password || !config.max_clients) {
+      return res.status(400).json({ error: 'All hotspot configuration fields are required' });
+    }
+
+    // Validate configuration
+    if (networkManager && !networkManager.validateSSID(config.ssid)) {
+      return res.status(400).json({ error: 'Invalid SSID format' });
+    }
+
+    if (networkManager && !networkManager.validatePassword(config.password, config.security_type)) {
+      return res.status(400).json({ error: 'Invalid password format for selected security type' });
+    }
+
+    if (networkManager) {
+      await networkManager.createHotspot(config);
+      
+      // Save to database
+      createHotspotConfiguration(config);
+      
+      addSystemLog('info', `Hotspot created: ${config.name} on interface: ${config.interface}`, req.admin.id);
+      
+      res.json({ message: 'Hotspot created successfully' });
+    } else {
+      res.status(503).json({ error: 'Network manager not available' });
+    }
+  } catch (error) {
+    console.error('Error creating hotspot:', error);
+    res.status(500).json({ error: 'Failed to create hotspot' });
+  }
+});
+
+app.get('/api/admin/network/hotspot/:name/clients', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { name } = req.params;
+    
+    if (networkManager) {
+      const clients = await networkManager.getConnectedClients(name);
+      res.json({ clients });
+    } else {
+      res.status(503).json({ error: 'Network manager not available' });
+    }
+  } catch (error) {
+    console.error('Error getting hotspot clients:', error);
+    res.status(500).json({ error: 'Failed to get hotspot clients' });
+  }
+});
+
+// VLAN Configuration Endpoints
+app.get('/api/admin/network/vlan', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const vlans = getVLANConfigurations();
+    res.json({ vlans });
+  } catch (error) {
+    console.error('Error getting VLANs:', error);
+    res.status(500).json({ error: 'Failed to get VLAN configurations' });
+  }
+});
+
+app.post('/api/admin/network/vlan', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const config = req.body;
+    
+    // Validate required fields
+    if (!config.vlan_id || !config.name || !config.interface) {
+      return res.status(400).json({ error: 'VLAN ID, name, and interface are required' });
+    }
+
+    // Validate VLAN ID range
+    if (config.vlan_id < 1 || config.vlan_id > 4094) {
+      return res.status(400).json({ error: 'VLAN ID must be between 1 and 4094' });
+    }
+
+    if (networkManager) {
+      await networkManager.createVLAN(config);
+      
+      // Save to database
+      createVLANConfiguration(config);
+      
+      addSystemLog('info', `VLAN created: ${config.name} (ID: ${config.vlan_id}) on interface: ${config.interface}`, req.admin.id);
+      
+      res.json({ message: 'VLAN created successfully' });
+    } else {
+      res.status(503).json({ error: 'Network manager not available' });
+    }
+  } catch (error) {
+    console.error('Error creating VLAN:', error);
+    res.status(500).json({ error: 'Failed to create VLAN' });
+  }
+});
+
+app.delete('/api/admin/network/vlan/:id', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({ error: 'VLAN ID is required' });
+    }
+
+    // Find the VLAN to delete
+    const vlans = getVLANConfigurations();
+    const vlan = vlans.find(v => v.id === id);
+    
+    if (!vlan) {
+      return res.status(404).json({ error: 'VLAN not found' });
+    }
+
+    if (networkManager) {
+      await networkManager.deleteVLAN(vlan.vlan_id, vlan.interface);
+      
+      // Delete from database
+      deleteVLANConfiguration(id);
+      
+      addSystemLog('info', `VLAN deleted: ${vlan.name} (ID: ${vlan.vlan_id})`, req.admin.id);
+      
+      res.json({ message: 'VLAN deleted successfully' });
+    } else {
+      res.status(503).json({ error: 'Network manager not available' });
+    }
+  } catch (error) {
+    console.error('Error deleting VLAN:', error);
+    res.status(500).json({ error: 'Failed to delete VLAN' });
+  }
+});
+
+// Enhanced Interface Management
+app.get('/api/admin/network/interface/:name/details', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { name } = req.params;
+    
+    if (networkManager) {
+      const details = await networkManager.getInterfaceDetails(name);
+      res.json({ details });
+    } else {
+      res.status(503).json({ error: 'Network manager not available' });
+    }
+  } catch (error) {
+    console.error('Error getting interface details:', error);
+    res.status(500).json({ error: 'Failed to get interface details' });
+  }
+});
+
+app.post('/api/admin/network/interface/:name/toggle', authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { name } = req.params;
+    const { enabled } = req.body;
+    
+    if (networkManager) {
+      if (enabled) {
+        await networkManager.bringInterfaceUp(name);
+        addSystemLog('info', `Interface enabled: ${name}`, req.admin.id);
+      } else {
+        await networkManager.bringInterfaceDown(name);
+        addSystemLog('info', `Interface disabled: ${name}`, req.admin.id);
+      }
+      
+      res.json({ message: `Interface ${enabled ? 'enabled' : 'disabled'} successfully` });
+    } else {
+      res.status(503).json({ error: 'Network manager not available' });
+    }
+  } catch (error) {
+    console.error('Error toggling interface:', error);
+    res.status(500).json({ error: 'Failed to toggle interface state' });
   }
 });
 

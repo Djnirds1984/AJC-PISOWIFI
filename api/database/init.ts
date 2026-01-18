@@ -86,6 +86,77 @@ db.exec(`
     FOREIGN KEY (admin_id) REFERENCES admin_users(id)
   );
 
+  -- WAN Configuration Table
+  CREATE TABLE IF NOT EXISTS wan_configurations (
+    id TEXT PRIMARY KEY,
+    interface TEXT NOT NULL,
+    ip_address TEXT,
+    subnet_mask TEXT,
+    gateway TEXT,
+    dns_primary TEXT,
+    dns_secondary TEXT,
+    dhcp_enabled BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- WLAN Configuration Table
+  CREATE TABLE IF NOT EXISTS wlan_configurations (
+    id TEXT PRIMARY KEY,
+    interface TEXT NOT NULL,
+    ssid TEXT NOT NULL,
+    security_type TEXT NOT NULL,
+    password TEXT,
+    channel INTEGER DEFAULT 6,
+    signal_strength INTEGER,
+    is_enabled BOOLEAN DEFAULT FALSE,
+    is_connected BOOLEAN DEFAULT FALSE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- Hotspot Configuration Table
+  CREATE TABLE IF NOT EXISTS hotspot_configurations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    interface TEXT NOT NULL,
+    ssid TEXT NOT NULL,
+    security_type TEXT NOT NULL,
+    password TEXT NOT NULL,
+    max_clients INTEGER DEFAULT 10,
+    bandwidth_limit_up INTEGER,
+    bandwidth_limit_down INTEGER,
+    is_enabled BOOLEAN DEFAULT FALSE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- VLAN Configuration Table
+  CREATE TABLE IF NOT EXISTS vlan_configurations (
+    id TEXT PRIMARY KEY,
+    vlan_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    interface TEXT NOT NULL,
+    tagged BOOLEAN DEFAULT TRUE,
+    priority INTEGER,
+    is_enabled BOOLEAN DEFAULT FALSE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- Network Settings History Table
+  CREATE TABLE IF NOT EXISTS network_settings_history (
+    id TEXT PRIMARY KEY,
+    setting_type TEXT NOT NULL,
+    setting_id TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    admin_id TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (admin_id) REFERENCES admin_users(id)
+  );
+
   -- Create indexes for better performance
   CREATE INDEX IF NOT EXISTS idx_sessions_mac ON user_sessions(mac_address);
   CREATE INDEX IF NOT EXISTS idx_sessions_active ON user_sessions(is_active);
@@ -94,6 +165,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_history_timestamp ON session_history(timestamp);
   CREATE INDEX IF NOT EXISTS idx_logs_level ON system_logs(level);
   CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON system_logs(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_wan_interface ON wan_configurations(interface);
+  CREATE INDEX IF NOT EXISTS idx_wlan_interface ON wlan_configurations(interface);
+  CREATE INDEX IF NOT EXISTS idx_hotspot_name ON hotspot_configurations(name);
+  CREATE INDEX IF NOT EXISTS idx_vlan_id ON vlan_configurations(vlan_id);
+  CREATE INDEX IF NOT EXISTS idx_network_history_type ON network_settings_history(setting_type);
+  CREATE INDEX IF NOT EXISTS idx_network_history_timestamp ON network_settings_history(timestamp);
 `);
 
 // Insert default rate settings
@@ -116,6 +193,20 @@ const insertAdmin = db.prepare(`
   VALUES (?, ?, ?)
 `);
 insertAdmin.run('admin-uuid', 'admin', adminPassword);
+
+// Insert default WAN configuration
+const insertWANConfig = db.prepare(`
+  INSERT OR IGNORE INTO wan_configurations (id, interface, ip_address, subnet_mask, gateway, dns_primary, dns_secondary, dhcp_enabled)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`);
+insertWANConfig.run('wan-default', 'eth0', '192.168.1.100', '255.255.255.0', '192.168.1.1', '8.8.8.8', '8.8.4.4', 0); // SQLite uses 0/1 for boolean
+
+// Insert default WLAN configuration
+const insertWLANConfig = db.prepare(`
+  INSERT OR IGNORE INTO wlan_configurations (id, interface, ssid, security_type, password, channel, is_enabled)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`);
+insertWLANConfig.run('wlan-default', 'wlan0', 'AJC-PISOWIFI', 'wpa2', 'pisowifi123', 6, 0); // SQLite uses 0/1 for boolean
 
 console.log('Database initialized successfully!');
 console.log(`Database file: ${dbPath}`);

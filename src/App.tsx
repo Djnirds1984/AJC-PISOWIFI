@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import ClientPortal from "@/pages/ClientPortal";
 import AdminLogin from "@/pages/AdminLogin";
 import AdminDashboard from "@/pages/AdminDashboard";
+import NetworkConfigPage from "@/pages/NetworkConfigPage";
 
 // Admin route guard
 const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -23,6 +24,14 @@ export default function App() {
           element={
             <AdminRoute>
               <AdminDashboard />
+            </AdminRoute>
+          } 
+        />
+        <Route 
+          path="/admin/network" 
+          element={
+            <AdminRoute>
+              <NetworkConfigPage />
             </AdminRoute>
           } 
         />
