@@ -75,12 +75,18 @@ let gpioManager: GPIOManager | null = null;
 let networkManager: NetworkManager | null = null;
 let systemUpdater: SystemUpdater | null = null;
 
+// GPIO Configuration - Available pins for Raspberry Pi 3B
+// Pin 3 (GPIO2) - Previously I2C SDA, now available since you disabled I2C
+// Pin 11 (GPIO17) - Safe general purpose pin
+const GPIO_PIN = 3; // Primary pin: GPIO2 (SDA)
+const GPIO_PIN_FALLBACK = 17; // Fallback pin: GPIO17
+
 // Initialize hardware and services
 async function initializeServices() {
   try {
-    // Initialize GPIO Manager (Physical Pin 3 = GPIO2)
+    // Try to initialize GPIO Manager with primary pin (GPIO2)
     gpioManager = new GPIOManager({
-      pin: 3,
+      pin: GPIO_PIN,
       debounceTime: 50
     });
 
@@ -114,7 +120,56 @@ async function initializeServices() {
       addSystemLog('error', `GPIO Error: ${error.message}`);
     });
 
-    await gpioManager.initialize();
+    try {
+      await gpioManager.initialize();
+    } catch (error) {
+      console.error(`GPIO initialization failed on pin ${GPIO_PIN}, trying fallback pin ${GPIO_PIN_FALLBACK}:`, error);
+      addSystemLog('warning', `GPIO initialization failed on pin ${GPIO_PIN}, trying fallback pin ${GPIO_PIN_FALLBACK}: ${error.message}`);
+      
+      // Try fallback pin
+      try {
+        gpioManager = new GPIOManager({
+          pin: GPIO_PIN_FALLBACK,
+          debounceTime: 50
+        });
+        
+        // Re-attach event listeners
+        gpioManager.on('coinPulse', async (event) => {
+          console.log('Coin detected:', event);
+          
+          // Update session credits if active session exists
+          const activeSessions = getActiveSessions();
+          if (activeSessions.length > 0) {
+            const session = activeSessions[0];
+            const updatedSession = updateSessionCredits(session.id, event.value);
+            
+            if (updatedSession) {
+              io.emit('coinDetected', {
+                sessionId: session.id,
+                credits: updatedSession.credits,
+                minutesRemaining: updatedSession.minutes_remaining,
+                coinValue: event.value
+              });
+            }
+          }
+          
+          addSystemLog('info', `Coin detected: ₱${event.value} (${event.totalPulses} pulses)`);
+        });
+
+        gpioManager.on('error', (error) => {
+          console.error('GPIO Error:', error);
+          addSystemLog('error', `GPIO Error: ${error.message}`);
+        });
+        
+        await gpioManager.initialize();
+        console.log(`GPIO successfully initialized on fallback pin ${GPIO_PIN_FALLBACK}`);
+        addSystemLog('info', `GPIO successfully initialized on fallback pin ${GPIO_PIN_FALLBACK}`);
+      } catch (fallbackError) {
+        console.error('Fallback GPIO initialization also failed, continuing in mock mode:', fallbackError);
+        addSystemLog('warning', `Fallback GPIO initialization failed, using mock mode: ${fallbackError.message}`);
+        // Continue with mock mode - don't throw error to prevent service failure
+      }
+    }
 
     // Initialize Network Manager
     networkManager = new NetworkManager();

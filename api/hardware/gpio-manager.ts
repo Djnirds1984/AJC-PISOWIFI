@@ -67,6 +67,12 @@ export class GPIOManager extends EventEmitter {
 
   private async detectBoardType(): Promise<'raspberry' | 'orange' | 'unknown'> {
     try {
+      // Check if running on Windows - force mock mode
+      if (process.platform === 'win32' || process.platform === 'cygwin') {
+        console.log('GPIO: Windows detected, using mock mode');
+        return 'unknown';
+      }
+
       // Check for Raspberry Pi
       try {
         await execAsync('cat /proc/device-tree/model | grep -i raspberry');
@@ -95,14 +101,75 @@ export class GPIOManager extends EventEmitter {
     }
   }
 
+  private async checkGPIOAvailability(pin: number): Promise<boolean> {
+    try {
+      // Check if GPIO pin is already exported
+      const { stdout } = await execAsync(`ls /sys/class/gpio/ | grep gpio${pin}`);
+      if (stdout.trim()) {
+        console.log(`GPIO: Pin ${pin} is already exported, attempting to unexport`);
+        try {
+          await execAsync(`echo ${pin} > /sys/class/gpio/unexport`);
+          console.log(`GPIO: Successfully unexported pin ${pin}`);
+          // Wait a moment for the system to release the pin
+          await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (unexportError) {
+          console.warn(`GPIO: Failed to unexport pin ${pin}:`, unexportError);
+          return false;
+        }
+      }
+      return true;
+    } catch (error) {
+      // Pin is not exported, which is good
+      return true;
+    }
+  }
+
   private async initializeRaspberryPi(): Promise<void> {
     try {
       const onoff = await import('onoff');
       const Gpio = onoff.Gpio;
       
-      this.gpio = new Gpio(this.pin, 'in', 'rising', { 
-        debounceTimeout: this.debounceTime 
-      });
+      // Enhanced debugging for GPIO2 (SDA) initialization
+      console.log(`GPIO: Attempting to initialize Raspberry Pi GPIO pin ${this.pin} (GPIO${this.pin})`);
+      
+      // Check if GPIO pin is available
+      const isAvailable = await this.checkGPIOAvailability(this.pin);
+      if (!isAvailable) {
+        console.warn(`GPIO: Pin ${this.pin} may not be available, attempting initialization anyway`);
+      }
+      
+      // Check if running with proper permissions
+      try {
+        this.gpio = new Gpio(this.pin, 'in', 'rising', { 
+          debounceTimeout: this.debounceTime 
+        });
+      } catch (gpioError: any) {
+        console.error(`GPIO: Detailed error for pin ${this.pin}:`, {
+          code: gpioError.code,
+          message: gpioError.message,
+          errno: gpioError.errno,
+          syscall: gpioError.syscall
+        });
+        
+        if (gpioError.code === 'EACCES' || gpioError.code === 'EPERM') {
+          throw new Error(`GPIO access denied. Try running with sudo or add user to gpio group: sudo usermod -a -G gpio $USER`);
+        } else if (gpioError.code === 'EINVAL') {
+          // Enhanced error message for EINVAL with specific guidance
+          throw new Error(`Invalid GPIO pin ${this.pin}. This usually means:
+1. Pin is reserved for I2C/SPI/UART (even if disabled in config)
+2. Pin is already exported by another process
+3. Pin number is out of range for this Raspberry Pi model
+
+Try these solutions:
+- Use GPIO17 (Physical Pin 11) instead
+- Check if pin is already exported: ls /sys/class/gpio/
+- Unexport the pin first: echo ${this.pin} > /sys/class/gpio/unexport
+- Ensure I2C is fully disabled: sudo raspi-config
+- Run with sudo to test permissions`);
+        } else {
+          throw gpioError;
+        }
+      }
 
       this.gpio.watch((err: Error | null, value: number) => {
         if (err) {
@@ -112,7 +179,7 @@ export class GPIOManager extends EventEmitter {
         this.handlePulse(value);
       });
 
-      console.log('GPIO: Raspberry Pi GPIO initialized');
+      console.log(`GPIO: Raspberry Pi GPIO initialized successfully on pin ${this.pin} (GPIO${this.pin})`);
     } catch (error) {
       throw new Error(`Failed to initialize Raspberry Pi GPIO: ${error}`);
     }
