@@ -329,6 +329,49 @@ app.post('/api/admin/auth/login', (req, res) => {
     addSystemLog('info', `Admin login: ${username}`, admin.id);
     
     res.json({
+      success: true,
+      token,
+      admin: {
+        id: admin.id,
+        username: admin.username
+      }
+    });
+  } catch (error) {
+    console.error('Error in admin login:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Frontend-compatible admin login route
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    const admin = getAdminByUsername(username);
+    
+    if (!admin) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const isValidPassword = bcrypt.compareSync(password, admin.password_hash);
+    
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const sessionToken = uuidv4();
+    updateAdminSession(admin.id, sessionToken);
+    
+    const token = jwt.sign({ sessionToken }, JWT_SECRET, { expiresIn: '24h' });
+    
+    addSystemLog('info', `Admin login: ${username}`, admin.id);
+    
+    res.json({
+      success: true,
       token,
       admin: {
         id: admin.id,
