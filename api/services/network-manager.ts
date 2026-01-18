@@ -24,14 +24,15 @@ export class NetworkManager {
   async initialize(): Promise<void> {
     try {
       // Check if we're on Windows (development environment)
-      if (process.platform === 'win32') {
+      const isWindows = (process.platform as string) === 'win32' || process.platform === 'cygwin';
+      if (isWindows) {
         console.log('Network Manager: Running on Windows - network operations disabled');
         this.isInitialized = true;
         return;
       }
 
-      // Check if we have necessary permissions (Linux only)
-      if (process.platform !== 'win32') {
+      // Check if we have necessary permissions (Linux/Unix only)
+      if (!isWindows) {
         await this.checkPermissions();
       }
       
