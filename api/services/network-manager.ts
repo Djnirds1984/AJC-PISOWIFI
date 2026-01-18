@@ -169,8 +169,10 @@ export class NetworkManager {
       await execAsync('sudo iptables -t nat -A CP_PORTAL -p udp --dport 53 -j RETURN');
       await execAsync('sudo iptables -t nat -A CP_PORTAL -p tcp --dport 53 -j RETURN');
       
-      // Redirect to captive portal
-      await execAsync('sudo iptables -t nat -A CP_PORTAL -j REDIRECT --to-port 8080');
+      // Redirect to captive portal (TCP traffic)
+      await execAsync('sudo iptables -t nat -A CP_PORTAL -p tcp -j REDIRECT --to-port 8080');
+      // Also redirect UDP traffic
+      await execAsync('sudo iptables -t nat -A CP_PORTAL -p udp -j REDIRECT --to-port 8080');
       
       console.log('Network Manager: Captive portal rules set up');
     } catch (error) {

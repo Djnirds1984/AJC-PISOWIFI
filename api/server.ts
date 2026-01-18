@@ -120,14 +120,18 @@ async function initializeServices() {
       addSystemLog('error', `GPIO Error: ${error.message}`);
     });
 
+    console.log(`GPIO: Starting initialization with primary pin ${GPIO_PIN} (GPIO2)`);
     try {
       await gpioManager.initialize();
+      console.log(`GPIO: Successfully initialized on primary pin ${GPIO_PIN}`);
+      addSystemLog('info', `GPIO successfully initialized on primary pin ${GPIO_PIN}`);
     } catch (error) {
       console.error(`GPIO initialization failed on pin ${GPIO_PIN}, trying fallback pin ${GPIO_PIN_FALLBACK}:`, error);
       addSystemLog('warning', `GPIO initialization failed on pin ${GPIO_PIN}, trying fallback pin ${GPIO_PIN_FALLBACK}: ${error.message}`);
       
       // Try fallback pin
       try {
+        console.log(`GPIO: Attempting fallback initialization with pin ${GPIO_PIN_FALLBACK}`);
         gpioManager = new GPIOManager({
           pin: GPIO_PIN_FALLBACK,
           debounceTime: 50
